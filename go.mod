@@ -3,7 +3,7 @@ module github.com/r523/khandaab
 go 1.17
 
 require (
-	github.com/pterm/pterm v0.12.32
+	github.com/pterm/pterm v0.12.33
 	periph.io/x/host/v3 v3.7.1
 )
 
