@@ -2,30 +2,17 @@ package main
 
 import (
 	"encoding/hex"
-	"fmt"
-	"log"
 	"time"
 
 	"github.com/pterm/pterm"
 	"periph.io/x/conn/v3/gpio"
-	"periph.io/x/conn/v3/gpio/gpioreg"
-	"periph.io/x/conn/v3/spi"
 	"periph.io/x/conn/v3/spi/spireg"
 	"periph.io/x/devices/v3/mfrc522"
 	"periph.io/x/host/v3"
+	"periph.io/x/host/v3/rpi"
 )
 
-// mfrc522 rfid device
-var rfid *mfrc522.Dev
-
-// spi port
-var port spi.PortCloser
-
-// pins used for rest and irq
-const (
-	resetPin = "P1_22" // GPIO 25
-	irqPin   = "P1_18" // GPIO 24
-)
+const ReadTimeout = 5 * time.Minute
 
 func main() {
 	if err := pterm.DefaultBigText.WithLetters(
@@ -49,33 +36,30 @@ func main() {
 		return
 	}
 
-	// get GPIO rest pin from its name
-	var gpioResetPin gpio.PinOut = gpioreg.ByName(resetPin)
-	if gpioResetPin == nil {
-		log.Fatalf("Failed to find %v", resetPin)
-	}
+	var (
+		ResetPin gpio.PinOut = rpi.P1_13
+		IRQPin   gpio.PinIn  = rpi.P1_11
+	)
 
-	// get GPIO irq pin from its name
-	var gpioIRQPin gpio.PinIn = gpioreg.ByName(irqPin)
-	if gpioIRQPin == nil {
-		log.Fatalf("Failed to find %v", irqPin)
-	}
-
-	rfid, err = mfrc522.NewSPI(port, gpioResetPin, gpioIRQPin, mfrc522.WithSync())
+	rfid, err := mfrc522.NewSPI(port, ResetPin, IRQPin, mfrc522.WithSync())
 	if err != nil {
-		log.Fatal(err)
+		pterm.Error.Printf("failed to create mfrc522 device based on spi %s\n", err)
+
+		return
 	}
 
 	// setting the antenna signal strength, signal strength from 0 to 7
 	rfid.SetAntennaGain(5)
 
-	fmt.Println("Started rfid reader.")
+	pterm.Info.Println("Started rfid reader.")
 
-	// trying to read UID
-	data, err := rfid.ReadUID(5 * time.Second)
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		fmt.Println(hex.EncodeToString(data))
+	for {
+		// trying to read UID
+		data, err := rfid.ReadUID(ReadTimeout)
+		if err != nil {
+			pterm.Error.Printf("cannot read the rfid %s\n", err)
+		} else {
+			pterm.Info.Println(hex.EncodeToString(data))
+		}
 	}
 }
