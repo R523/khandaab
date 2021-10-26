@@ -4,10 +4,10 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
+	"github.com/r523/khandaab/internal/pcf8574"
 	"github.com/r523/khandaab/internal/rfid"
 	"github.com/r523/khandaab/internal/servo"
 	"periph.io/x/conn/v3/gpio"
-	"periph.io/x/conn/v3/i2c/i2creg"
 	"periph.io/x/conn/v3/physic"
 	"periph.io/x/host/v3"
 	"periph.io/x/host/v3/rpi"
@@ -16,8 +16,6 @@ import (
 const (
 	Gain      = 5
 	AllowedID = "0cdb074999"
-
-	I2CAddr = 0x20
 
 	BuzzTimeout = 1 * time.Second
 
@@ -65,28 +63,23 @@ func main() {
 		return
 	}
 
-	b, err := i2creg.Open("/dev/i2c-1")
+	p, err := pcf8574.New("/dev/i2c-1")
 	if err != nil {
-		pterm.Error.Printf("cannot open i2c device %s\n", err)
+		pterm.Error.Printf("cannot open the pcf8574 %s\n", err)
 
 		return
 	}
-	defer b.Close()
 
-	// PCF8574 Remote 8-Bit I/O Expander
-	// 7 (MSB) | 6  | 5  | 4  | 3  | 2  | 1  | 0 (LSB) |
-	// P7      | P6 | P5 | P4 | P3 | P2 | P1 | P0      |
-	// P7 is attached to buzzer
-	if err := b.Tx(I2CAddr, []byte{0x00}, nil); err != nil {
-		pterm.Error.Printf("cannot communicate with i2c device %s\n", err)
+	if err := p.Write(0b0000_0000); err != nil {
+		pterm.Error.Printf("cannot set the pcf8574 pins %s\n", err)
 
 		return
 	}
 
 	time.Sleep(BuzzTimeout)
 
-	if err := b.Tx(I2CAddr, []byte{0xF0}, nil); err != nil {
-		pterm.Error.Printf("cannot communicate with i2c device %s\n", err)
+	if err := p.Write(0b1111_0000); err != nil {
+		pterm.Error.Printf("cannot set the pcf8574 pins %s\n", err)
 
 		return
 	}
