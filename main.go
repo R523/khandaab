@@ -1,40 +1,31 @@
 package main
 
 import (
-	"encoding/hex"
 	"time"
 
 	"github.com/pterm/pterm"
+	"github.com/r523/khandaab/internal/rfid"
+	"github.com/r523/khandaab/internal/servo"
 	"periph.io/x/conn/v3/gpio"
+	"periph.io/x/conn/v3/i2c/i2creg"
 	"periph.io/x/conn/v3/physic"
-	"periph.io/x/conn/v3/spi/spireg"
-	"periph.io/x/devices/v3/mfrc522"
 	"periph.io/x/host/v3"
 	"periph.io/x/host/v3/rpi"
 )
 
 const (
-	ReadTimeout = 5 * time.Minute
-	Gain        = 5
-	AllowedID   = "0cdb074999"
+	Gain      = 5
+	AllowedID = "0cdb074999"
 
-	ServoFreq    = 10 * physic.Hertz
-	ServoTimeout = 10 * time.Second
+	I2CAddr = 0x20
+
+	BuzzTimeout = 1 * time.Second
+
+	ServoDutyNumerator   gpio.Duty = 2
+	ServoDutyDenominator gpio.Duty = 5
+	ServoFreq                      = 10 * physic.Hertz
+	ServoTimeout                   = 10 * time.Second
 )
-
-func ReadRFIDWithRetries(rfid *mfrc522.Dev) string {
-	for {
-		// trying to read UID
-		data, err := rfid.ReadUID(ReadTimeout)
-		if err != nil {
-			// here we ignore the reader error because of its many failures.
-			// pterm.Error.Printf("cannot read the rfid %s\n", err)
-			_ = err
-		} else {
-			return hex.EncodeToString(data)
-		}
-	}
-}
 
 func main() {
 	if err := pterm.DefaultBigText.WithLetters(
@@ -50,36 +41,21 @@ func main() {
 		return
 	}
 
-	// get the first available spi port eith empty string.
-	port, err := spireg.Open("/dev/spidev0.0")
-	if err != nil {
-		pterm.Error.Printf("cannot open the spi interface %s\n", err)
-
-		return
-	}
-
 	var (
 		ResetPin gpio.PinOut = rpi.P1_13
 		IRQPin   gpio.PinIn  = rpi.P1_11
 	)
 
-	rfid, err := mfrc522.NewSPI(port, ResetPin, IRQPin, mfrc522.WithSync())
+	rid, err := rfid.Setup("/dev/spidev0.0", ResetPin, IRQPin, Gain)
 	if err != nil {
-		pterm.Error.Printf("failed to create mfrc522 device based on spi %s\n", err)
-
-		return
-	}
-
-	// setting the antenna signal strength, signal strength from 0 to 7
-	if err := rfid.SetAntennaGain(Gain); err != nil {
-		pterm.Error.Printf("antenna gain setup failed %s\n", err)
+		pterm.Error.Printf("cannot create rfid device %s\n", err)
 
 		return
 	}
 
 	pterm.Info.Println("Started rfid reader.")
 
-	id := ReadRFIDWithRetries(rfid)
+	id := rfid.ReadRFIDWithRetries(rid)
 
 	pterm.Info.Println(id)
 
@@ -89,13 +65,41 @@ func main() {
 		return
 	}
 
-	if err := rpi.P1_33.PWM(gpio.DutyHalf/3, ServoFreq); err != nil {
-		pterm.Error.Printf("cannot setup pwm for motor %s\n", err)
+	b, err := i2creg.Open("/dev/i2c-1")
+	if err != nil {
+		pterm.Error.Printf("cannot open i2c device %s\n", err)
+
+		return
+	}
+	defer b.Close()
+
+	// PCF8574 Remote 8-Bit I/O Expander
+	// 7 (MSB) | 6  | 5  | 4  | 3  | 2  | 1  | 0 (LSB) |
+	// P7      | P6 | P5 | P4 | P3 | P2 | P1 | P0      |
+	// P7 is attached to buzzer
+	if err := b.Tx(I2CAddr, []byte{0x00}, nil); err != nil {
+		pterm.Error.Printf("cannot communicate with i2c device %s\n", err)
+
+		return
+	}
+
+	time.Sleep(BuzzTimeout)
+
+	if err := b.Tx(I2CAddr, []byte{0xF0}, nil); err != nil {
+		pterm.Error.Printf("cannot communicate with i2c device %s\n", err)
+
+		return
+	}
+
+	s := servo.New(rpi.P1_33, ServoDutyNumerator, ServoDutyDenominator, ServoFreq)
+
+	if err := s.Start(); err != nil {
+		pterm.Error.Printf("cannot start the servo %s", err)
 
 		return
 	}
 
 	time.Sleep(ServoTimeout)
 
-	_ = rpi.P1_33.Halt()
+	_ = s.Stop()
 }
