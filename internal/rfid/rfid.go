@@ -10,7 +10,7 @@ import (
 )
 
 func Setup(spiDev string, resetPin gpio.PinOut, irqPin gpio.PinIn, gain int) (*mfrc522.Dev, error) {
-	port, err := spireg.Open("/dev/spidev0.0")
+	port, err := spireg.Open(spiDev)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open the spi interface %w", err)
 	}
